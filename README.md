@@ -1,4 +1,4 @@
-# 📸 Computer Vision Demo Code Repository – BITS F459
+# 📸 Computer Vision Lab Repository – BITS F459
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
