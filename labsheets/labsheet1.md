@@ -512,16 +512,17 @@ This task will not be graded, but you're expected to be able to walk through it 
 
 Extend the PySide6 image viewer from Section 8 into a small interactive tool with the following features:
 
-1. **Open Image** button — same as before, using `QFileDialog`.
-2. **Scale slider** — a `QSlider` that scales the displayed image in real time (e.g. from 10% to 200% of its original size). Show the current scale percentage as a label.
+1. **Open Image** button — same as before.
+2. **Scale slider** — a `QSlider` that scales the displayed image in real time (e.g. from 10% to 200% of its original size). 
 3. **Rotate slider** — a `QSlider` that rotates the image about its center in real time, from 0° to 360°. Show the current angle as a label. Use **unclipped rotation** so the full image is always visible.
-4. **Flip Horizontal** and **Flip Vertical** buttons — toggle-able flips that combine correctly with the current scale and rotation (i.e. all transformations should apply together, not overwrite each other).
+4. **Flip Horizontal** and **Flip Vertical** buttons — toggle-able flips that combine correctly with the current scale and rotation
 5. The image should re-render smoothly as you drag either slider (connect to the slider's `valueChanged` signal).
 
 **Requirements / constraints:**
 - Do **not** modify `self.image_bgr` (the originally loaded image) in place — always transform a fresh copy of it each time a control changes, so the transformations don't compound or degrade the image over repeated adjustments.
 - Structure your code so there is a single method (e.g. `apply_transforms()`) that reads the current slider values and flip states, and re-renders the image — call this method from every control's signal handler.
 - Handle the case where no image has been loaded yet (disable the controls, as in Section 8).
+- **Display the image at its true, actual size inside a `QScrollArea`** (with scrollbars appearing automatically when the image is bigger than the viewport), rather than re-fitting the pixmap to a fixed-size label. If you rescale the final pixmap to fit a fixed box (e.g. with `pixmap.scaled(label.width(), label.height(), Qt.KeepAspectRatio)`), that re-fit silently cancels out your scale slider — a shrunk image just gets stretched back up to fill the box, and an enlarged one gets clipped back down to fit it, so scaling will look broken in one direction. Put your `QLabel` inside a `QScrollArea` (`setWidgetResizable(False)`), set the pixmap on the label at its real computed size, and call `label.resize(pixmap.size())` so the scroll area knows when to show scrollbars.
 
 > 📌 The solution code for this assignment is **not included in this lab sheet**. Attempt it yourself using the building blocks from Sections 4 (scaling/rotation) and 8 (PySide6 viewer) above. Solutions/reference implementations will be discussed in the next lab session.
 
