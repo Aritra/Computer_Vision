@@ -327,22 +327,54 @@ cv2.destroyAllWindows()
 
 So far we've displayed images using OpenCV's own `cv2.imshow()` windows, which are basic and not interactive beyond keypresses. From this lab onward, we'll start building small **GUI applications** using **PySide6** (the official Python bindings for the Qt framework) to make our tools more usable — file pickers, buttons, sliders, etc.
 
-### 📥 Installing PySide6
+### 🧭 Recommended workflow: prototype logic first, wrap in GUI second
 
-Activate your `cv-env` environment (or `cvlab`, whatever you're using this semester) and run:
+**Do not write and debug new image-processing logic directly inside a PySide6 app.** Work in two stages:
+
+1. **Prototype in your existing environment** (`cv-env` / `cvlab`) using plain scripts with `cv2.imshow()` as usual. Get the actual image-processing logic (scaling, rotation, flipping, filtering, etc.) working and verified correctly first.
+2. **Only once that logic is confirmed correct**, move it into a GUI wrapper in a **separate, dedicated environment** (created below) built for GUI work. At that point you're just wiring already-working functions to sliders and buttons, not debugging two things at once.
+
+This keeps your GUI environment stable and avoids conflicts, and keeps your debugging simple — you're never trying to figure out whether a bug is in your image logic or in the GUI plumbing at the same time.
+
+### 📥 Setting up a dedicated `cv_gui` environment
+
+GUI work uses a **separate conda environment** from the rest of the course, kept deliberately minimal:
 
 ```bash
+conda create -n cv_gui python=3.10
+conda activate cv_gui
+
+# Headless OpenCV: no bundled GUI/Qt components, since PySide6 handles all display here
+# NumPy pinned below 2.0: current opencv-python-headless wheels are compiled
+# against NumPy 1.x, and mixing with NumPy 2.x can crash at import time
+pip install "numpy<2" opencv-python-headless opencv-contrib-python-headless
+
+# PySide6 for the GUI itself
 pip install PySide6
 ```
+
+> ⚠️ **Why headless, and why a separate environment?** The regular `opencv-python` package bundles its **own** copy of Qt (used internally for `cv2.imshow()`). If it's installed alongside PySide6 in the same environment, the two Qt installs conflict, and PySide6 fails to start with an error like:
+> ```
+> Could not find the Qt platform plugin "xcb" in "...cv2/qt/plugins"
+> ```
+> Keeping GUI work in its own environment with **only** the headless OpenCV build avoids this conflict entirely, and keeps your main `cv-env`/`cvlab` environment (used for `cv2.imshow()`-based experiments) untouched.
+
+> ⚠️ **Why `numpy<2`?** If `pip` pulls in NumPy 2.x on its own, you may see a warning/crash like:
+> ```
+> A module that was compiled using NumPy 1.x cannot be run in NumPy 2.2.6 as it may crash.
+> ```
+> This happens when the installed OpenCV wheel was compiled against NumPy 1.x but a newer NumPy 2.x got installed alongside it. Pinning `numpy<2` when you first create the environment avoids this entirely. (If you'd rather use NumPy 2.x, the alternative is to upgrade to a recent OpenCV release — 4.9+ — built against NumPy 2.0; don't mix an old OpenCV wheel with NumPy 2.x.)
 
 Verify the install:
 
 ```python
+import cv2
 import PySide6
+print("OpenCV version:", cv2.__version__)
 print("PySide6 version:", PySide6.__version__)
 ```
 
-> 💡 PySide6 windows use their **own event loop** (`app.exec()`), separate from OpenCV's `cv2.waitKey()`. Don't mix `cv2.imshow()` and PySide6 windows in the same script — pick one display method per application.
+> 💡 PySide6 windows use their **own event loop** (`app.exec()`), separate from OpenCV's `cv2.waitKey()`. Since `opencv-python-headless` doesn't provide `cv2.imshow()` at all, this isn't a choice you need to make in the `cv_gui` environment — display is handled entirely through PySide6 there.
 
 ### 🖼️ A Minimal GUI Image Viewer
 
@@ -475,6 +507,8 @@ This task will not be graded, but you're expected to be able to walk through it 
 ---
 
 ## 🧪 Student Assignment — GUI Image Viewer with Scale, Rotate, and Flip
+
+> 🧭 Follow the workflow from Section 8: first verify your scaling/rotation/flip logic works correctly as a plain script in `cv-env`/`cvlab` (reuse what you built in Section 4). Only once that's confirmed, switch to the `cv_gui` environment (`conda activate cv_gui`) to build the actual GUI below.
 
 Extend the PySide6 image viewer from Section 8 into a small interactive tool with the following features:
 
