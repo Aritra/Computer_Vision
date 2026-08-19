@@ -17,6 +17,7 @@ Labsheets are added weekly as Markdown files under the [`labsheets/`](./labsheet
 | Week | Labsheet | Topic | Status |
 |:----:|----------|-------|:------:|
 | 1    | [labsheet1.md](./labsheets/labsheet1.md) | Introduction to openCV and basics | Uploaded |
+| 2    | [labsheet2.md](./labsheets/labsheet2.md) | Edge detection, line detection, morphology, homography | Uploaded |
 
 > The table above will be updated as new labsheets are released. Check back weekly, or watch/star this repo to get notified of updates.
 
