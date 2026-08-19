@@ -482,7 +482,7 @@ import cv2
 import numpy as np
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QLabel, QPushButton, QFileDialog,
-    QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QComboBox, QMessageBox
+    QVBoxLayout, QHBoxLayout, QWidget, QScrollArea, QComboBox, QMessageBox, QDialog
 )
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtCore import Qt
@@ -514,6 +514,59 @@ class ClickableImageLabel(QLabel):
 
     def reset_points(self):
         self.points = []
+
+
+class WarpedResultDialog(QDialog):
+    """Shows the warped output inside a PySide6 window with a Save button.
+
+    We deliberately do NOT use cv2.imshow()/cv2.waitKey() here: the cv_gui
+    environment uses opencv-python-headless (no bundled GUI/Qt), so calling
+    cv2.imshow() there always raises:
+        cv2.error: ... The function is not implemented.
+        Rebuild the library with Windows, GTK+ 2.x or Cocoa support ...
+    Since PySide6 is already our display layer in this environment, the
+    result should be shown as a normal PySide6 widget, same as everything
+    else in this app.
+    """
+
+    def __init__(self, warped_bgr, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Warped Result")
+        self.warped_bgr = warped_bgr
+        self.resize(700, 700)
+
+        self.result_label = QLabel()
+        self.result_label.setAlignment(Qt.AlignCenter)
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidget(self.result_label)
+        self.scroll_area.setWidgetResizable(False)
+        self.scroll_area.setAlignment(Qt.AlignCenter)
+        self.scroll_area.setMinimumSize(600, 600)
+
+        rgb = cv2.cvtColor(warped_bgr, cv2.COLOR_BGR2RGB)
+        self.display_buffer = np.ascontiguousarray(rgb)  # keep buffer alive
+        h, w, ch = self.display_buffer.shape
+        qimg = QImage(self.display_buffer.data, w, h, ch * w, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(qimg)
+        self.result_label.setPixmap(pixmap)
+        self.result_label.resize(pixmap.size())
+
+        save_button = QPushButton("Save As...")
+        save_button.clicked.connect(self.save_image)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.scroll_area)
+        layout.addWidget(save_button)
+        self.setLayout(layout)
+
+    def save_image(self):
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Warped Image", "",
+            "PNG Image (*.png);;JPEG Image (*.jpg)"
+        )
+        if file_path:
+            cv2.imwrite(file_path, self.warped_bgr)
 
 
 class HomographyTool(QMainWindow):
@@ -569,7 +622,7 @@ class HomographyTool(QMainWindow):
     def open_image(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select Image", "",
-            "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)"
+            "All Files (*);;Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp *.gif)"
         )
         if not file_path:
             return
@@ -625,9 +678,8 @@ class HomographyTool(QMainWindow):
         M = cv2.getPerspectiveTransform(src_points, dst_points)
         warped = cv2.warpPerspective(self.original_bgr, M, (target_w, target_h))
 
-        cv2.imshow("Warped Result", warped)
-        cv2.waitKey(0)
-        cv2.destroyWindow("Warped Result")
+        dialog = WarpedResultDialog(warped, self)
+        dialog.exec()
 
     def render_image(self, cv_image, keep_points=False):
         rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
@@ -676,6 +728,7 @@ Everything downstream (the paper-size dropdown, `cv2.getPerspectiveTransform`, `
 **Requirements:**
 
 - Reuse the GUI from Section 8, but replace manual point clicking with an **"Auto-Detect Corners"** button that runs your pipeline and populates the 4 points itself (still show them as markers, same as the manual version, so the user can visually verify before warping).
+- **Add a "Custom" option to the paper-size dropdown**, alongside the existing presets (A4, Letter, etc.). When "Custom" is selected, show two input fields (e.g. `QSpinBox`) for the target **width and height in pixels**, and use those values — instead of a `PAPER_SIZES` lookup — as `target_w`/`target_h` when computing the destination points and calling `cv2.warpPerspective()`.
 - Your line-intersection step needs a way to go from two lines to a point. If your lines are in `(rho, theta)` form (from `cv2.HoughLines`), you can set up two linear equations (one per line) and solve them as a small system — look into `np.linalg.solve()` for a 2×2 system once you've expressed each line as `x*cos(theta) + y*sin(theta) = rho`.
 - Not every pair of detected lines is useful — you'll likely detect far more than 4 lines (duplicates at similar angles, spurious short ones, etc.). Think about how to group or filter lines (e.g. by angle, roughly separating "mostly horizontal" from "mostly vertical" lines) before computing intersections, and how to pick which 4 intersection points are the actual corners (vs. intersections that fall outside the image, or where near-parallel lines produce wildly distant points).
 - Test on at least 3 different document/object photos with varying backgrounds and lighting, and note where your automatic detection succeeds and where it fails compared to manual selection.
