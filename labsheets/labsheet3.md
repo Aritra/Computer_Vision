@@ -128,8 +128,12 @@ class StructureTensorViewer(QMainWindow):
         self.window_size_box.setValue(21)
 
         self.scale_box = QSpinBox()
-        self.scale_box.setRange(1, 50)
-        self.scale_box.setValue(5)
+        self.scale_box.setRange(1, 2000)
+        self.scale_box.setValue(300)
+
+        self.max_axis_box = QSpinBox()
+        self.max_axis_box.setRange(5, 400)
+        self.max_axis_box.setValue(100)
 
         controls_row = QHBoxLayout()
         controls_row.addWidget(self.open_button)
@@ -137,6 +141,8 @@ class StructureTensorViewer(QMainWindow):
         controls_row.addWidget(self.window_size_box)
         controls_row.addWidget(QLabel("Ellipse scale:"))
         controls_row.addWidget(self.scale_box)
+        controls_row.addWidget(QLabel("Max axis (px):"))
+        controls_row.addWidget(self.max_axis_box)
         controls_row.addWidget(self.clear_button)
 
         main_layout = QVBoxLayout()
@@ -164,7 +170,7 @@ class StructureTensorViewer(QMainWindow):
         self.gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float32)
 
         # Precompute gradients and gradient-product images ONCE per image,
-        # so each click only has to sum a small window, not recompute Sobel.
+        # so each click only has to average a small window, not recompute Sobel.
         Ix = cv2.Sobel(self.gray, cv2.CV_32F, 1, 0, ksize=3)
         Iy = cv2.Sobel(self.gray, cv2.CV_32F, 0, 1, ksize=3)
         self.Ix2 = Ix * Ix
@@ -186,15 +192,18 @@ class StructureTensorViewer(QMainWindow):
         self.redraw_with_ellipses()
 
     def structure_tensor_at(self, x, y, half_win):
-        """Sum the precomputed gradient-product images over a window
-        centered at (x, y), then eigen-decompose the resulting 2x2 matrix."""
+        """Average the precomputed gradient-product images over a window
+        centered at (x, y), then eigen-decompose the resulting 2x2 matrix.
+
+        We use the window MEAN (not the raw sum) so eigenvalue magnitudes
+        stay comparable across different window sizes."""
         h, w = self.gray.shape
         x0, x1 = max(0, x - half_win), min(w, x + half_win + 1)
         y0, y1 = max(0, y - half_win), min(h, y + half_win + 1)
 
-        Sxx = float(np.sum(self.Ix2[y0:y1, x0:x1]))
-        Syy = float(np.sum(self.Iy2[y0:y1, x0:x1]))
-        Sxy = float(np.sum(self.Ixy[y0:y1, x0:x1]))
+        Sxx = float(np.mean(self.Ix2[y0:y1, x0:x1]))
+        Syy = float(np.mean(self.Iy2[y0:y1, x0:x1]))
+        Sxy = float(np.mean(self.Ixy[y0:y1, x0:x1]))
 
         M = np.array([[Sxx, Sxy], [Sxy, Syy]], dtype=np.float64)
         eigenvalues, eigenvectors = np.linalg.eigh(M)  # ascending order
@@ -208,6 +217,8 @@ class StructureTensorViewer(QMainWindow):
         preview = self.original_bgr.copy()
         half_win = self.window_size_box.value() // 2
         scale = self.scale_box.value()
+        max_axis = self.max_axis_box.value()
+        epsilon = 1.0  # prevents division blow-up on near-zero (flat-region) eigenvalues
 
         for (x, y) in self.click_points:
             lam1, lam2, v1, v2 = self.structure_tensor_at(x, y, half_win)
@@ -215,8 +226,16 @@ class StructureTensorViewer(QMainWindow):
             lam1 = max(lam1, 0.0)  # guard against tiny negative floating-point noise
             lam2 = max(lam2, 0.0)
 
-            axis1 = max(int(scale * np.sqrt(lam1)), 2)
-            axis2 = max(int(scale * np.sqrt(lam2)), 2)
+            # Axis length is INVERSELY proportional to sqrt(eigenvalue):
+            # a large eigenvalue means the gradient is well-determined in that
+            # direction, so the point is tightly localized there (SMALL axis).
+            # A near-zero eigenvalue (flat region) means nothing constrains
+            # the point in that direction, so the axis should be LARGE.
+            axis1 = scale / np.sqrt(lam1 + epsilon)  # goes with v1 (larger eigenvalue -> smaller axis)
+            axis2 = scale / np.sqrt(lam2 + epsilon)  # goes with v2 (smaller eigenvalue -> larger axis)
+
+            axis1 = int(np.clip(axis1, 2, max_axis))
+            axis2 = int(np.clip(axis2, 2, max_axis))
             angle_deg = float(np.degrees(np.arctan2(v1[1], v1[0])))
 
             cv2.ellipse(preview, (x, y), (axis1, axis2), angle_deg, 0, 360, (0, 255, 255), 2)
