@@ -5,8 +5,9 @@
 In this lab, you will:
 
 1. Segment an image by color using **K-Means clustering on HSV pixels**, with an interactive slider for the number of clusters.
-2. Build a full classical image-classification pipeline on **CIFAR-100**: SIFT features → a Bag-of-Visual-Words vocabulary (K-Means) → a multiclass SVM, evaluated with precision/recall/F1.
-3. Extend that pipeline on **Caltech-256** using richer, combined feature engineering (color, texture, and gradient-based features together).
+2. Build a full classical image-classification pipeline on **Caltech-256**: SIFT features → a Bag-of-Visual-Words vocabulary (K-Means) → a multiclass SVM, evaluated with precision/recall/F1.
+3. Improve on that baseline with **richer feature engineering** and **hierarchical classification**.
+4. Extend the K-Means segmentation tool to **autonomously choose** the number of clusters for a given image.
 
 ---
 
@@ -21,7 +22,7 @@ pip install scikit-learn scikit-image matplotlib joblib
 ```
 
 - `scikit-learn` — K-Means, train/val/test splitting, the SGD-based SVM, and evaluation metrics.
-- `scikit-image` — used in the Caltech-256 task for texture (LBP) and gradient (HOG) descriptors.
+- `scikit-image` — used later for texture (LBP) and gradient (HOG) descriptors.
 - `joblib` — saving/loading trained models and the visual vocabulary to disk.
 
 ---
@@ -102,16 +103,13 @@ cv2.destroyAllWindows()
 
 ---
 
-## 2️⃣ Classical Image Classification: CIFAR-100 with SIFT + Bag-of-Visual-Words + SVM
+## 2️⃣ Classical Image Classification: Caltech-256 with SIFT + Bag-of-Visual-Words + SVM
 
 ### Dataset
 
-Download **CIFAR-100 (Python version)** from Kaggle: https://www.kaggle.com/datasets/fedesoriano/cifar100
+Download **Caltech-256** from Kaggle: https://www.kaggle.com/datasets/jessicali9530/caltech256
 
-This is the original CIFAR-100 python-pickle distribution — you'll get three files: `train`, `test`, and `meta`, each a pickled dictionary (byte-string keys):
-
-- `train` / `test`: `b"data"` (uint8 array, shape `(N, 3072)` — each row is 32×32 Red pixels, then 32×32 Green, then 32×32 Blue, all flattened), `b"fine_labels"` (100-class labels, 0–99), `b"coarse_labels"` (20 superclass labels).
-- `meta`: `b"fine_label_names"` — the 100 human-readable class names, indexed by label ID.
+It's organized as **one folder per class** (e.g. `256_ObjectCategories/001.ak47/`, `.../002.american-flag/`, ...) containing full-resolution JPEG images — 256 object categories plus a "clutter" background class. Unlike a dataset that ships pre-packaged arrays, you'll be reading images directly off disk here.
 
 ### The pipeline
 
@@ -119,14 +117,14 @@ We'll follow this exact sequence: **DataLoader → train/val/test split → SIFT
 
 > 💡 A quick note on the SVM + loss curve: `sklearn.svm.SVC` solves an exact optimization problem in one shot, so there's no per-epoch loss to plot. To get an actual training/validation loss curve, we instead use `SGDClassifier(loss="hinge")` — hinge loss trained via stochastic gradient descent **is** a (linear) SVM, just fit iteratively instead of solved exactly, which is exactly what lets us record a loss value after each epoch.
 
-> ⚠️ **Runtime note:** running SIFT + a 64-word K-Means over the *full* 50,000-image training set is a lot of computation for a lab session. The code below subsamples a fixed number of images per class (`MAX_IMAGES_PER_CLASS`) to keep runtime reasonable — raise this constant if you have the time/compute to spare, for a stronger final model.
+> ⚠️ **Runtime note:** Caltech-256 has no fixed train/test split and its images are much larger than a toy dataset's, so we (a) read images from disk one at a time instead of preloading everything into memory, and (b) subsample a fixed number of images per class (`MAX_IMAGES_PER_CLASS`) to keep runtime reasonable for a lab session — raise this constant if you have the time/compute to spare, for a stronger final model.
 
 ```python
 """
-Lab 4 - CIFAR-100 classification with SIFT + Bag-of-Visual-Words + SVM
+Lab 4 - Caltech-256 classification with SIFT + Bag-of-Visual-Words + SVM
 
 Pipeline:
-  1. DataLoader           -> unpickle the CIFAR-100 python archive
+  1. DataLoader           -> walk the Caltech-256 folder-per-class structure
   2. Train / val / test split
   3. SIFT features on grayscale images
   4. K-Means (k=64) on ALL training SIFT descriptors -> visual vocabulary
@@ -136,7 +134,8 @@ Pipeline:
   8. Save the trained SVM + vocabulary + label names for later reuse
 """
 
-import pickle
+import os
+import random
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
@@ -148,79 +147,73 @@ from sklearn.metrics import classification_report
 from sklearn.preprocessing import StandardScaler
 
 # ---------------- Configuration ----------------
-CIFAR_DIR = "cifar-100-python"   # folder containing 'train', 'test', 'meta'
-VOCAB_SIZE = 64                  # k for the visual-vocabulary K-Means
-RESIZE_DIM = 128                 # upscale before SIFT - CIFAR's native 32x32 is too small for a good SIFT response
-MAX_IMAGES_PER_CLASS = 50        # subsample for a lab-friendly runtime; raise this for a stronger model
-NUM_EPOCHS = 30                  # SGD-SVM training epochs
+CALTECH_DIR = "256_ObjectCategories"   # folder containing one subfolder per class, e.g. "001.ak47"
+VOCAB_SIZE = 64                        # k for the visual-vocabulary K-Means
+RESIZE_DIM = 128                       # resize every image to a consistent size before feature extraction
+MAX_IMAGES_PER_CLASS = 50              # subsample for a lab-friendly runtime; raise this for a stronger model
+NUM_EPOCHS = 30                        # SGD-SVM training epochs
 RANDOM_STATE = 42
 
 
 # ---------------- 1) DataLoader ----------------
-def unpickle(file_path):
-    """CIFAR-100's python archive is a pickled dict with byte-string keys."""
-    with open(file_path, "rb") as f:
-        return pickle.load(f, encoding="bytes")
+def load_caltech256_paths(root_dir, max_per_class):
+    """Walk the one-folder-per-class structure and return (filepath, label_id) pairs,
+    subsampled to at most `max_per_class` images per class. We keep file PATHS, not
+    loaded images, since Caltech-256 is too large to hold entirely in memory."""
+    class_folders = sorted(
+        d for d in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, d))
+    )
+    label_names = [name.split(".", 1)[1] if "." in name else name for name in class_folders]
+
+    rng = random.Random(RANDOM_STATE)
+    filepaths, labels = [], []
+
+    for label_id, folder in enumerate(class_folders):
+        folder_path = os.path.join(root_dir, folder)
+        images_in_class = [
+            f for f in os.listdir(folder_path)
+            if f.lower().endswith((".jpg", ".jpeg", ".png"))
+        ]
+        rng.shuffle(images_in_class)
+        for fname in images_in_class[:max_per_class]:
+            filepaths.append(os.path.join(folder_path, fname))
+            labels.append(label_id)
+
+    return filepaths, np.array(labels), label_names
 
 
-def load_cifar100_split(split_file):
-    raw = unpickle(split_file)
-    flat = raw[b"data"]                      # shape (N, 3072): R(1024) + G(1024) + B(1024), row-major
-    labels = np.array(raw[b"fine_labels"])   # 0-99
-
-    n = flat.shape[0]
-    images = flat.reshape(n, 3, 32, 32).transpose(0, 2, 3, 1)  # -> (N, 32, 32, 3), RGB
-    return images, labels
-
-
-def subsample_per_class(images, labels, max_per_class):
-    """Cap the number of images kept per class, for a manageable lab runtime."""
-    rng = np.random.RandomState(RANDOM_STATE)
-    keep_idx = []
-    for cls in np.unique(labels):
-        cls_idx = np.where(labels == cls)[0]
-        chosen = rng.choice(cls_idx, size=min(max_per_class, len(cls_idx)), replace=False)
-        keep_idx.extend(chosen)
-    keep_idx = np.array(keep_idx)
-    return images[keep_idx], labels[keep_idx]
-
-
-meta = unpickle(f"{CIFAR_DIR}/meta")
-fine_label_names = [name.decode("utf-8") for name in meta[b"fine_label_names"]]
-
-train_images_full, train_labels_full = load_cifar100_split(f"{CIFAR_DIR}/train")
-test_images, test_labels = load_cifar100_split(f"{CIFAR_DIR}/test")
-
-train_images_full, train_labels_full = subsample_per_class(
-    train_images_full, train_labels_full, MAX_IMAGES_PER_CLASS
-)
-
-print(f"Loaded {len(train_images_full)} training images, {len(test_images)} test images, "
-      f"{len(fine_label_names)} classes.")
+filepaths, labels, label_names = load_caltech256_paths(CALTECH_DIR, MAX_IMAGES_PER_CLASS)
+print(f"Loaded {len(filepaths)} images across {len(label_names)} classes.")
 
 
 # ---------------- 2) Train / val / test split ----------------
-# CIFAR-100 already gives us a held-out test set; carve a validation set out of the
-# (subsampled) training set, stratified so every class is represented in both splits.
-train_images, val_images, train_labels, val_labels = train_test_split(
-    train_images_full, train_labels_full,
-    test_size=0.15, stratify=train_labels_full, random_state=RANDOM_STATE
+# Caltech-256 doesn't ship a fixed split, so we carve out all three ourselves (stratified,
+# so every class is represented proportionally in each split).
+train_paths, temp_paths, train_labels, temp_labels = train_test_split(
+    filepaths, labels, test_size=0.30, stratify=labels, random_state=RANDOM_STATE
+)
+val_paths, test_paths, val_labels, test_labels = train_test_split(
+    temp_paths, temp_labels, test_size=0.50, stratify=temp_labels, random_state=RANDOM_STATE
 )
 
-print(f"Train: {len(train_images)}  Val: {len(val_images)}  Test: {len(test_images)}")
+print(f"Train: {len(train_paths)}  Val: {len(val_paths)}  Test: {len(test_paths)}")
 
 
 # ---------------- 3) SIFT features on grayscale images ----------------
 sift = cv2.SIFT_create()
 
 
-def extract_sift_descriptors(images):
-    """Returns a list of per-image descriptor arrays (each shape [n_keypoints, 128], or None)."""
+def extract_sift_descriptors(paths):
+    """Returns a list of per-image descriptor arrays (each shape [n_keypoints, 128], or None).
+    Images are read from disk one at a time here, rather than preloaded, since Caltech-256's
+    full-resolution JPEGs are much larger than a toy dataset's packed arrays."""
     all_descriptors = []
-    for img in images:
-        bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        # Upscale first - at native 32x32, SIFT's scale-space finds almost nothing
-        resized = cv2.resize(bgr, (RESIZE_DIM, RESIZE_DIM), interpolation=cv2.INTER_CUBIC)
+    for path in paths:
+        img = cv2.imread(path)
+        if img is None:
+            all_descriptors.append(None)
+            continue
+        resized = cv2.resize(img, (RESIZE_DIM, RESIZE_DIM), interpolation=cv2.INTER_AREA)
         gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
         _, descriptors = sift.detectAndCompute(gray, None)
         all_descriptors.append(descriptors)  # may be None if literally no keypoints were found
@@ -228,11 +221,11 @@ def extract_sift_descriptors(images):
 
 
 print("Extracting SIFT descriptors (train)...")
-train_descriptors = extract_sift_descriptors(train_images)
+train_descriptors = extract_sift_descriptors(train_paths)
 print("Extracting SIFT descriptors (val)...")
-val_descriptors = extract_sift_descriptors(val_images)
+val_descriptors = extract_sift_descriptors(val_paths)
 print("Extracting SIFT descriptors (test)...")
-test_descriptors = extract_sift_descriptors(test_images)
+test_descriptors = extract_sift_descriptors(test_paths)
 
 
 # ---------------- 4) K-Means visual vocabulary (k=64) on ALL training descriptors ----------------
@@ -317,17 +310,17 @@ plt.show()
 # ---------------- 7) Test-set evaluation ----------------
 test_predictions = svm.predict(X_test)
 report = classification_report(
-    test_labels, test_predictions, target_names=fine_label_names, zero_division=0
+    test_labels, test_predictions, target_names=label_names, zero_division=0
 )
 print("\nTest set performance:\n")
 print(report)
 
 
 # ---------------- 8) Save the trained pipeline for later reuse ----------------
-joblib.dump(svm, "cifar100_svm.joblib")
-joblib.dump(vocabulary, "cifar100_vocabulary.joblib")
-joblib.dump(scaler, "cifar100_scaler.joblib")
-joblib.dump(fine_label_names, "cifar100_label_names.joblib")
+joblib.dump(svm, "caltech256_svm.joblib")
+joblib.dump(vocabulary, "caltech256_vocabulary.joblib")
+joblib.dump(scaler, "caltech256_scaler.joblib")
+joblib.dump(label_names, "caltech256_label_names.joblib")
 print("Saved model, vocabulary, scaler, and label names to disk.")
 ```
 
@@ -338,8 +331,8 @@ The training/testing script above is deliberately silent (no image windows) — 
 ```python
 """
 Lab 4 - Classify a single hardcoded image using the SVM + vocabulary saved
-by the training script above. Unlike that script, this one DOES display
-the image, since it's meant for one-off, visual inspection.
+by the Caltech-256 training script above. Unlike that script, this one
+DOES display the image, since it's meant for one-off, visual inspection.
 """
 
 import cv2
@@ -350,15 +343,15 @@ IMAGE_PATH = "my_test_image.jpg"  # hardcoded path - change to whatever you want
 RESIZE_DIM = 128
 VOCAB_SIZE = 64
 
-svm = joblib.load("cifar100_svm.joblib")
-vocabulary = joblib.load("cifar100_vocabulary.joblib")
-scaler = joblib.load("cifar100_scaler.joblib")
-label_names = joblib.load("cifar100_label_names.joblib")
+svm = joblib.load("caltech256_svm.joblib")
+vocabulary = joblib.load("caltech256_vocabulary.joblib")
+scaler = joblib.load("caltech256_scaler.joblib")
+label_names = joblib.load("caltech256_label_names.joblib")
 
 sift = cv2.SIFT_create()
 
 img = cv2.imread(IMAGE_PATH)
-resized = cv2.resize(img, (RESIZE_DIM, RESIZE_DIM), interpolation=cv2.INTER_CUBIC)
+resized = cv2.resize(img, (RESIZE_DIM, RESIZE_DIM), interpolation=cv2.INTER_AREA)
 gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
 _, descriptors = sift.detectAndCompute(gray, None)
 
@@ -396,35 +389,59 @@ cv2.destroyAllWindows()
 
 ---
 
-## 🧪 Student Assignment — Caltech-256 with Combined Feature Engineering
+## 🧪 Student Task 1 — Better Feature Engineering + Hierarchical Classification
 
-### Dataset
+The SIFT-BoVW baseline from Section 2 is a reasonable starting point, but 256 visually diverse classes is a hard problem for a single flat classifier working from one feature type. Improve on it along **two independent axes**:
 
-Download **Caltech-256** from Kaggle: https://www.kaggle.com/datasets/jessicali9530/caltech256
+### A. Richer feature engineering
 
-Unlike CIFAR-100, this dataset is organized as **one folder per class** (e.g. `256_ObjectCategories/001.ak47/`, `.../002.american-flag/`, ...) containing full-resolution JPEG images — 256 object categories plus a "clutter" background class.
-
-### Task
-
-Follow the **same overall pipeline** as Section 2 (DataLoader → train/val/test split → feature extraction → vocabulary/features → SVM with a loss curve → test evaluation with precision/recall/F1 → a separate single-image inference script) — but this time, replace or augment the SIFT-only feature with a **combination of at least two different feature types**. Some options (not exhaustive — mix and match, or use your own ideas):
+Replace or augment the SIFT-BoVW feature with a **combination of at least two different feature types**. Some options (not exhaustive — mix and match, or use your own ideas):
 
 - **SIFT + Bag-of-Visual-Words** (as in Section 2) for local shape/texture structure.
 - **Color histogram** — a histogram over HSV or RGB channels, capturing the overall color distribution of the image (something SIFT ignores almost entirely, since it works on grayscale).
 - **Local Binary Patterns (LBP)** — a texture descriptor (`skimage.feature.local_binary_pattern`); build a histogram of LBP codes over the image, similar in spirit to how you built a BoVW histogram over SIFT words.
 - **HOG (Histogram of Oriented Gradients)** — captures edge/gradient orientation structure across the image (`skimage.feature.hog`), a good complement to color and texture, since it encodes coarse shape.
 
+When combining feature types, **normalize each type separately before concatenating** (e.g. each with its own `StandardScaler`, or each L2-normalized independently) — otherwise a feature type with naturally larger raw magnitudes will dominate the combined vector regardless of how useful it actually is.
+
+### B. Hierarchical classification
+
+Caltech-256 doesn't ship a built-in class hierarchy (unlike some datasets that provide both fine and coarse labels), so this is about **building your own** and using it to structure the classification problem:
+
+1. Using your baseline model's training features, compute a **mean feature vector per class** (the centroid of all training samples belonging to that class).
+2. Run a **hierarchical/agglomerative clustering** (e.g. `sklearn.cluster.AgglomerativeClustering`) over these 256 class-centroids to group visually/feature-similar classes into a smaller number of **coarse "super-groups."**
+3. Train a **two-stage classifier**: first, a coarse classifier that predicts which super-group an image belongs to; then, a fine classifier — trained only on that super-group's classes — that predicts the exact class, conditioned on the coarse prediction.
+4. Compare this hierarchical approach's overall accuracy/F1 against the flat 256-class baseline from Section 2. Report whether it helps, and reason about *why* — e.g. does it help most on classes that were being confused with visually similar ones under the flat classifier?
+
 **Requirements:**
 
-1. Extract **at least two** different feature types per image, and **concatenate** them into one combined feature vector per image. Normalize each feature type *before* concatenating (e.g. with its own `StandardScaler`, or L2-normalizing each block separately) — otherwise, a feature type with naturally larger raw magnitudes will dominate the combined vector regardless of how useful it actually is.
-2. Reuse the same SGD-based multiclass SVM approach with a plotted training/validation loss curve.
-3. Report test-set precision, recall, and F1, the same way as Section 2.
-4. **Compare against a SIFT-only baseline** — re-run (or reuse) the Section 2-style pipeline on Caltech-256 with SIFT-BoVW alone, and report whether your combined-feature approach improves on it, and by how much.
-5. Provide a separate hardcoded-single-image inference script, mirroring the one in Section 2, that works with your saved combined-feature pipeline.
+1. Report test-set precision, recall, and F1 for: (a) the Section 2 SIFT-only flat baseline, (b) your improved-features flat classifier, and (c) your hierarchical classifier — so all three are directly comparable.
+2. Reuse the same SGD-based multiclass SVM approach with a plotted training/validation loss curve for each classifier you train.
+3. Provide a separate hardcoded-single-image inference script (mirroring the one in Section 2) for your **best-performing** final pipeline.
 
 **Some things to think about:**
 
-- Caltech-256 images vary a lot in size and aspect ratio, unlike CIFAR-100's fixed 32×32 — you'll likely want to resize every image to a consistent size before extracting any feature, so your feature vectors stay comparable across images.
-- 256 classes is a lot more than 100 — think about whether your `MAX_IMAGES_PER_CLASS`-style subsampling (needed here too, for the same runtime reasons as Section 2) needs to be larger to give the SVM enough signal per class.
-- If your combined feature vector doesn't clearly outperform the SIFT-only baseline, that's a legitimate and useful finding to report — not every feature combination helps on every dataset, and explaining *why* it didn't (e.g. background clutter dominating the color histogram) is valuable analysis in itself.
+- If your combined-feature or hierarchical approach doesn't clearly outperform the flat SIFT-only baseline, that's a legitimate and useful finding to report — not every enhancement helps on every dataset, and explaining *why* it didn't is valuable analysis in itself.
+- Think about what happens to an image if the coarse classifier gets the super-group wrong — the fine classifier never even gets a chance at the right answer. How does this failure mode show up in your reported metrics compared to the flat baseline?
 
 > 📌 As with previous assignments, no reference solution is included in this lab sheet.
+
+---
+
+## 🧪 Student Task 2 — Autonomous K Selection for K-Means Segmentation
+
+In Section 1, you picked `K` by hand with a slider. Extend that tool so it can **suggest (or directly choose) a good value of `K` for a given image on its own**, without a person dragging a slider and eyeballing the result.
+
+**This is intentionally open-ended.** You're free to explore standard clustering-evaluation heuristics as a starting point (e.g. the elbow method on K-Means inertia, silhouette score, gap statistic, or an information-criterion-style approach), but:
+
+- **Don't just bolt on a generic textbook/AI-suggested heuristic without thinking about whether it actually fits this problem.** Most standard "best K" heuristics are designed for generic clustering of abstract data points — they don't know anything about what makes a *color segmentation* good or bad for a human looking at the result. Think about what "the right number of segments" should even mean here: is it about statistical cluster separation, about visual/perceptual color distinctness, about the number of contiguous regions after your morphological cleanup, or something else entirely?
+- You're encouraged to combine ideas, adapt a standard metric to be more image-aware (e.g. weighting it by segment spatial coherence, or by how large/small the resulting connected regions are after morphological closing), or come up with your own criterion from scratch.
+
+**Requirements:**
+
+1. Your method should take only the image as input and output a suggested `K` (or a small ranked shortlist), without a human manually dragging a slider to find it.
+2. Test it on at least 4 visually different images (e.g. a simple few-color object, a busy natural scene, a texture-heavy image, an image with a smooth gradient background) and report the `K` your method picked for each, alongside the resulting segmented output.
+3. Critically evaluate your own method: does the suggested `K` actually look right to you on each image? Where does it clearly succeed, and where does it clearly fail or feel arbitrary? An honest account of your method's limitations is expected and valued — this task is about the quality of your reasoning and experimentation, not about arriving at a perfect automatic answer.
+4. Briefly document (a couple of paragraphs) the approach(es) you tried, including any that *didn't* work, and why you settled on your final one.
+
+> 📌 As with previous tasks, no reference solution is included in this lab sheet.
