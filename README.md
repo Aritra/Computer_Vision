@@ -19,6 +19,7 @@ Labsheets are added weekly as Markdown files under the [`labsheets/`](./labsheet
 | 1    | [labsheet1.md](./labsheets/labsheet1.md) | Introduction to openCV and basics | Uploaded |
 | 2    | [labsheet2.md](./labsheets/labsheet2.md) | Edge detection, line detection, morphology, homography | Uploaded |
 | 3    | [labsheet3.md](./labsheets/labsheet3.md) | Classical features and matching towards image stitching | Uploaded |
+| 4    | [labsheet4.md](./labsheets/labsheet4.md) | Classical ML towards segmentation and classification | Uploaded |
 
 > The table above will be updated as new labsheets are released. Check back weekly, or watch/star this repo to get notified of updates.
 
