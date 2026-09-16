@@ -20,6 +20,7 @@ Labsheets are added weekly as Markdown files under the [`labsheets/`](./labsheet
 | 2    | [labsheet2.md](./labsheets/labsheet2.md) | Edge detection, line detection, morphology, homography | Uploaded |
 | 3    | [labsheet3.md](./labsheets/labsheet3.md) | Classical features and matching towards image stitching | Uploaded |
 | 4    | [labsheet4.md](./labsheets/labsheet4.md) | Classical ML towards segmentation and classification | Uploaded |
+| 4    | [labsheet5.md](./labsheets/labsheet5.md) | Classical ML towards semantic segmentation and content based retrieval | Uploaded |
 
 > The table above will be updated as new labsheets are released. Check back weekly, or watch/star this repo to get notified of updates.
 
