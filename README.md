@@ -20,7 +20,9 @@ Labsheets are added weekly as Markdown files under the [`labsheets/`](./labsheet
 | 2    | [labsheet2.md](./labsheets/labsheet2.md) | Edge detection, line detection, morphology, homography | Uploaded |
 | 3    | [labsheet3.md](./labsheets/labsheet3.md) | Classical features and matching towards image stitching | Uploaded |
 | 4    | [labsheet4.md](./labsheets/labsheet4.md) | Classical ML towards segmentation and classification | Uploaded |
-| 4    | [labsheet5.md](./labsheets/labsheet5.md) | Classical ML towards semantic segmentation and content based retrieval | Uploaded |
+| 5    | [labsheet5.md](./labsheets/labsheet5.md) | Classical ML towards semantic segmentation and content based retrieval | Uploaded |
+| 6-1  | [labsheet6-1.md](./labsheets/labsheet6-1.md) · [Colab](./labsheets/labsheet6-1_colab.ipynb) | Perceptrons, PyTorch, autograd, the training loop, TensorBoard & checkpointing | Uploaded |
+| 6-2  | [labsheet6-2.md](./labsheets/labsheet6-2.md) · [Colab](./labsheets/labsheet6-2_colab.ipynb) | MNIST→LBP features vs raw pixels, and training mechanics (loss, optimizer, LR, regularization, dropout) | Uploaded |
 
 > The table above will be updated as new labsheets are released. Check back weekly, or watch/star this repo to get notified of updates.
 
@@ -101,6 +103,36 @@ If this runs without errors and prints a version number, your environment is rea
 
 ---
 
+### 🔥 Step 4: Deep-Learning Environment (`cv-dl`) — from Lab 6 onward
+
+Lab 6 (both parts) introduces PyTorch. Like the `cv_gui` environment from Lab 1, deep-learning work gets its **own** environment rather than being piled into `cv-env`:
+
+```bash
+conda create -n cv-dl python=3.10
+conda activate cv-dl
+
+# CPU-only PyTorch is plenty for these labs - the models are small.
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+pip install scikit-learn scikit-image matplotlib tensorboard opencv-python
+```
+
+> 💡 **Prefer not to install anything?** Lab 6 ships Colab notebooks ([6-1](./labsheets/labsheet6-1_colab.ipynb), [6-2](./labsheets/labsheet6-2_colab.ipynb)) that run end-to-end in the browser with no local setup — PyTorch, torchvision and scikit-image are all preinstalled there, and TensorBoard renders inline.
+
+---
+
+## 🗂️ Environments at a glance
+
+| Environment | Used by | Key packages |
+|---|---|---|
+| `cv-env` (or `cvlab`) | Labs 1–5, most exercises | `opencv-python`, `numpy`, `matplotlib`, `scikit-learn`, `scikit-image` |
+| `cv_gui` | Lab 1 §8, Lab 2 §8, Lab 3 §1 (PySide6 GUIs) | `opencv-python-headless`, `numpy<2`, `PySide6` |
+| `cv-dl` | Lab 6-1 onward (PyTorch) | `torch`, `torchvision`, `tensorboard`, `scikit-learn`, `scikit-image` |
+
+> ⚠️ Keep these **separate**. `opencv-python` bundles its own Qt, which conflicts with PySide6 — that's the whole reason `cv_gui` exists (see Lab 1 §8).
+
+---
+
 ## 🧑‍💻 Recommended Code Editor: VS Code
 
 We recommend using **Visual Studio Code** for writing and debugging code.
@@ -143,9 +175,15 @@ dependencies:
 ├── labsheets/
 │   ├── labsheet1.md
 │   ├── labsheet2.md
-│   └── ...
-└── demos/
-    └── (in-class demo code, organized by week/topic)
+│   ├── ...
+│   ├── labsheet6-1.md
+│   ├── labsheet6-1_colab.ipynb  <- runnable companion notebook
+│   ├── labsheet6-2.md
+│   └── labsheet6-2_colab.ipynb
+├── lecture_notes/
+│   └── (slide decks / notes, as PDFs)
+└── sample_for_doc_images/
+    └── (sample photos used by the Lab 2 document-scanning exercises)
 ```
 
 ---
