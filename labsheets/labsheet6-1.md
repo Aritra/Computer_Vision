@@ -4,8 +4,8 @@
 
 In this lab, you will:
 
-1. Connect Lab 4's SGD-trained SVM to the **single-layer perceptron**, and extend it to a **multi-layer perceptron (MLP)**.
-2. Learn **PyTorch** fundamentals: tensors, `autograd`, and how a gradient actually flows backward and updates a weight — verified by hand against the chain rule.
+1. In this lab, we will be introduced to the **single-layer perceptron**, and extend it to a **multi-layer perceptron (MLP)**.
+2. Learn **PyTorch** fundamentals: tensors, `autograd`, and how a gradient actually flows backward and updates a weight verified by hand against the chain rule.
 3. Write a **`dataset.py`**: a `Dataset` subclass from scratch, for the IRIS dataset.
 4. Write a **`model.py`**: single-layer and multi-layer perceptrons, and read the `forward()` pass end to end.
 5. Write a **`train.py`**: the training loop, **TensorBoard** logging, **checkpointing** (`last.pt` / `best.pt`), and **early stopping**.
@@ -122,13 +122,13 @@ With the non-linearity, the hidden layer learns an intermediate representation, 
 
 |                     | Single-layer perceptron                   | Multi-layer perceptron (MLP)                     |
 | ------------------- | ----------------------------------------- | ------------------------------------------------ |
-| Parameters          | one`W`, one `b`                       | one`W`, `b` per layer                        |
+| Parameters          | one`W`, one `b`                           | one`W`, `b` per layer                            |
 | Decision boundary   | linear (hyperplane)                       | non-linear                                       |
-| Needs activations?  | no (output layer only)                    | **yes**, or it collapses to a single layer |
+| Needs activations?  | no (output layer only)                    | **yes**, or it collapses to a single layer       |
 | Dropout applicable? | no (nothing to drop between)              | yes, between hidden layers                       |
-| Equivalent to       | logistic / softmax regression, linear SVM | —                                               |
+| Equivalent to       | logistic / softmax regression, linear SVM | —                                                |
 
-**In this lab you will train both, on both datasets, and compare.** When a single layer already does nearly as well as an MLP, that tells you the problem is close to linearly separable in whatever feature space you built — which is itself a useful finding about your *features*, not just your model.
+**In this lab, you will train on both types of networks and compare.** When a single layer already does nearly as well as an MLP, that tells you the problem is close to linearly separable in whatever feature space you built — which is itself a useful finding about your *features*, not just your model.
 
 ---
 
@@ -157,7 +157,7 @@ Two dtype rules that cause most beginner errors in this lab:
 
 ### Autograd: watch a gradient get computed
 
-This is the single most important cell in this lab. We build one neuron, run it forward, call `.backward()`, and then check PyTorch's answer against the chain rule done by hand.
+This is the single most important cell in this lab. We build a single neuron, run it forward, call `.backward()`, and then check PyTorch's answer against the chain rule computed by hand.
 
 ```python
 import torch
@@ -185,7 +185,7 @@ print(f"w.grad  = {w.grad}")
 print(f"b.grad  = {b.grad.item():.6f}")
 ```
 
-Now the same gradient by hand. The chain rule down this graph is:
+Now, the same gradient by hand. The chain rule for this graph is:
 
 ```
 dloss/dw = dloss/dy_pred  ×  dy_pred/dz  ×  dz/dw
@@ -206,7 +206,7 @@ assert torch.allclose(b.grad, manual_db), "gradients disagree!"
 print("autograd matches the hand-computed chain rule")
 ```
 
-That assert passing is the whole point: `loss.backward()` is not magic, it is the chain rule applied mechanically over the graph of operations you just wrote. Everything else in this lab is that same step, repeated over bigger graphs.
+That assert passing is the whole point: `loss.backward()` is not magic, it is the chain rule applied mechanically over the graph of operations you just wrote. Everything else in this lab is the same step, repeated over bigger graphs.
 
 ### The update step
 
@@ -219,7 +219,7 @@ with torch.no_grad():          # weight updates must not themselves be recorded
     b -= LR * b.grad
 ```
 
-In real code an **optimizer** does this for you, which also lets you swap SGD for Adam without touching the loop.
+In real code, an **optimizer** does this for you, which also lets you swap SGD for Adam without touching the loop.
 
 ### The five-line ritual
 
@@ -235,7 +235,7 @@ optimizer.step()               # 5. apply the update using those .grad values
 
 > ⚠️ **Why `zero_grad()` exists, and the bug you get without it.** PyTorch **accumulates** gradients into `.grad` rather than overwriting them. If you forget `zero_grad()`, step 4 *adds* this batch's gradient to every previous batch's gradient, so your effective gradient keeps growing without bound. The model still trains — badly, erratically, and often it converges to something mediocre instead of crashing. There is no error message. This is the most common PyTorch bug, and the fact that it fails *silently* is exactly what makes it worth memorizing now.
 >
-> (The accumulation behaviour is deliberate, not an oversight — it's what lets you simulate a large batch on a small GPU by summing gradients over several small batches before stepping once.)
+> (The accumulation behavior is deliberate, not an oversight — it's what lets you simulate a large batch on a small GPU by summing gradients over several small batches before stepping once.)
 
 ### `model.train()` vs `model.eval()`, and `torch.no_grad()`
 
@@ -267,7 +267,7 @@ That separation is why you can swap IRIS for MNIST without touching your trainin
 
 ### IRIS
 
-IRIS is 150 flowers, 4 numeric measurements each (sepal length/width, petal length/width), 3 species. It is not a vision dataset and it ships with scikit-learn, not torchvision — which makes it perfect for this section, because there is no ready-made loader and you have to write the `Dataset` yourself.
+IRIS is 150 flowers, 4 numeric measurements each (sepal length/width, petal length/width), 3 species. It is not a vision dataset, and it ships with scikit-learn, not torchvision — which makes it perfect for this section, because there is no ready-made loader and you have to write the `Dataset` yourself.
 
 It's also a useful case for the single-vs-multi-layer question: `setosa` is cleanly linearly separable from the other two, while `versicolor` and `virginica` overlap slightly. So a single layer gets *most* of the way, and you can see exactly how much the hidden layer buys.
 
@@ -342,7 +342,7 @@ def build_iris_datasets(val_size=0.2, test_size=0.2, random_state=42):
     )
 ```
 
-> ⚠️ **The scaler is part of your model.** If you save `best.pt` but lose the `StandardScaler` that was fitted alongside it, the checkpoint is useless — feeding raw centimetres into weights trained on standardized inputs produces confident nonsense. Section 5 saves the scaler **inside** the checkpoint for exactly this reason. This is the direct descendant of Lab 4's `joblib.dump(scaler, "caltech256_scaler.joblib")`.
+> ⚠️ **The scaler is part of your model.** If you save `best.pt` but lose the `StandardScaler` that was fitted alongside it, the checkpoint is useless — feeding raw centimetres into weights trained on standardized inputs produces confident nonsense. Section 5 saves the scaler **inside** the checkpoint for exactly this reason. This is the direct descendant of Lab 4's joblib.dump(scaler, "caltech256_scaler.joblib")`.
 
 ---
 
@@ -730,13 +730,13 @@ Tabs worth knowing: **SCALARS** (loss/accuracy curves, all runs overlaid — tic
 ### Task
 
 1. Run both configurations. For each, report the best epoch, best validation loss, and test accuracy.
-2. **Single vs multi layer.** How much does the hidden layer actually buy you on IRIS? IRIS is a useful case here: `setosa` is cleanly linearly separable from the other two species, while `versicolor` and `virginica` overlap slightly — so a single layer should get *most* of the way on its own.
+2. **Single vs multi-layer.** How much does the hidden layer actually buy you on IRIS? IRIS is a useful case here: `setosa` is cleanly linearly separable from the other two species, while `versicolor` and `virginica` overlap slightly — so a single layer should get *most* of the way on its own.
 
-   > ⚠️ **IRIS's test split is only 30 samples**, so a single sample is worth 3.3% of the score. It is entirely normal for the MLP to score *below* the single-layer model on IRIS test accuracy in a given run — that is noise, not evidence that the hidden layer hurt. Look at the validation curves in TensorBoard, and re-run with a few different `random_state` values before concluding anything. **Knowing when a difference is too small to mean anything is part of the skill.**
+   > ⚠️ **IRIS's test split is only 30 samples**, so a single sample is worth 3.3% of the score. It is entirely normal for the MLP to score *below* the single-layer model on IRIS test accuracy in a given run — that is, noise, not evidence that the hidden layer hurt. Look at the validation curves in TensorBoard, and re-run with a few different `random_state` values before concluding anything. **Knowing when a difference is too small to mean anything is part of the skill.**
    >
-3. **Watch the checkpointing work.** Note which epoch `best.pt` came from versus which epoch training actually stopped at. The gap between those two numbers is exactly what early stopping plus best-checkpointing bought you — without it you would have shipped the final epoch's weights, which were measurably worse on validation.
+3. **Watch the checkpointing work.** Note which epoch `best.pt` came from versus which epoch training actually stopped at. The gap between those two numbers is exactly what early stopping plus best-checkpointing bought you — without it, you would have shipped the final epoch's weights, which were measurably worse on validation.
 4. Open the **GRAPHS** tab in TensorBoard and compare the single-layer and MLP graphs against the forward pass you traced by hand in Section 4. Then open **HISTOGRAMS** and watch how the weight distributions move over training.
-5. Deliberately break it: comment out `optimizer.zero_grad()` in `train.py` and re-run. The model still trains — note how the loss curve differs, and how easy this would have been to miss. Put the line back afterwards.
+5. Deliberately break it: comment out `optimizer.zero_grad()` in `train.py` and re-run. The model still trains — note how the loss curve differs, and how easy this would have been to miss. Put the line back afterward.
 
 ---
 
@@ -752,14 +752,14 @@ You must write, by hand:
 2. **Loss** — cross-entropy between the predicted probabilities and the one-hot true labels.
 3. **Backward pass** — the analytic gradients `dL/dW` and `dL/db`. (For softmax + cross-entropy together, `dL/dz` simplifies to `(probabilities - one_hot) / batch_size` — derive this, don't just use it. The derivation is the point.)
 4. **Update** — `W -= lr * dW`, `b -= lr * db`.
-5. A **mini-batch training loop** over the same IRIS split your PyTorch version used.
+5. A **mini-batch training loop** over the same IRIS split as your PyTorch version used.
 
 **Requirements:**
 
 1. **Verify your gradients against PyTorch.** Build a `SingleLayerPerceptron` with the *same* initial weights as your NumPy version, run one forward and backward pass on the *same* batch, and assert that your hand-computed `dW` and `db` match `model.fc.weight.grad` and `model.fc.bias.grad` to within floating-point tolerance. **Show this assert passing** — this is the core deliverable, and it is the same verification you did on one neuron in Section 2, now at full layer scale.
 2. Train your NumPy perceptron to convergence on IRIS and plot its training loss curve beside the PyTorch `iris_single` run's curve from Section 6. They should be close; explain any difference you see (weight initialization, batch ordering, and floating-point accumulation are the usual suspects).
 3. Report final test accuracy for both and compare.
-4. **Extend to one hidden layer** (NumPy MLP: `X → W1 → ReLU → W2 → softmax`). You'll need to backpropagate through the ReLU — note that its gradient is simply `1` where the input was positive and `0` elsewhere. Verify these gradients against PyTorch too.
+4. **Extend to one hidden layer** (NumPy MLP: `X → W1 → ReLU → W2 → softmax`). You'll need to backpropagate through the ReLU — note that its gradient is simply `1` where the input was positive and `0` elsewhere. Verify these gradients against PyTorch, too.
 
 **Some things to think about:**
 
@@ -774,6 +774,6 @@ You must write, by hand:
 
 ## ➡️ Next
 
-Continue to **[Lab 6-2 — Image Features &amp; Training Mechanics](./labsheet6-2.md)**, which reuses the `dataset.py`, `model.py` and `train.py` you just wrote — unchanged — and points them at images.
+Continue to **[Lab 6-2 — Image Features &amp; Training Mechanics](./labsheet6-2.md)**, which reuses the `dataset.py`, `model.py,` and `train.py` you just wrote — unchanged — and points them at images.
 
 ---
