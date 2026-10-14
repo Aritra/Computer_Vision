@@ -21,8 +21,8 @@ Labsheets are added weekly as Markdown files under the [`labsheets/`](./labsheet
 | 3    | [labsheet3.md](./labsheets/labsheet3.md) | Classical features and matching towards image stitching | Uploaded |
 | 4    | [labsheet4.md](./labsheets/labsheet4.md) | Classical ML towards segmentation and classification | Uploaded |
 | 5    | [labsheet5.md](./labsheets/labsheet5.md) | Classical ML towards semantic segmentation and content based retrieval | Uploaded |
-| 6-1  | [labsheet6-1.md](./labsheets/labsheet6-1.md) · [Colab](./labsheets/labsheet6-1_colab.ipynb) | Perceptrons, PyTorch, autograd, the training loop, TensorBoard & checkpointing | Uploaded |
-| 6-2  | [labsheet6-2.md](./labsheets/labsheet6-2.md) · [Colab](./labsheets/labsheet6-2_colab.ipynb) | MNIST→LBP features vs raw pixels, and training mechanics (loss, optimizer, LR, regularization, dropout) | Uploaded |
+| 6-1  | [labsheet6-1.md](./labsheets/labsheet6-1.md) · [notebook](./labsheets/labsheet6-1.ipynb) | Perceptrons, PyTorch, autograd, the training loop, TensorBoard & checkpointing | Uploaded |
+| 6-2  | [labsheet6-2.md](./labsheets/labsheet6-2.md) · [notebook](./labsheets/labsheet6-2.ipynb) | MNIST→LBP features vs raw pixels, and training mechanics (loss, optimizer, LR, regularization, dropout) | Uploaded |
 
 > The table above will be updated as new labsheets are released. Check back weekly, or watch/star this repo to get notified of updates.
 
@@ -114,10 +114,27 @@ conda activate cv-dl
 # CPU-only PyTorch is plenty for these labs - the models are small.
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-pip install scikit-learn scikit-image matplotlib tensorboard opencv-python
+pip install scikit-learn scikit-image matplotlib tensorboard opencv-python jupyter ipykernel
+
+# Register it as a Jupyter kernel so you can select it inside the notebooks
+python -m ipykernel install --user --name cv-dl --display-name "Python (cv-dl)"
 ```
 
-> 💡 **Prefer not to install anything?** Lab 6 ships Colab notebooks ([6-1](./labsheets/labsheet6-1_colab.ipynb), [6-2](./labsheets/labsheet6-2_colab.ipynb)) that run end-to-end in the browser with no local setup — PyTorch, torchvision and scikit-image are all preinstalled there, and TensorBoard renders inline.
+> ⚠️ Run the two `pip install` lines **separately**. The `--index-url` flag replaces PyPI for the whole command, so appending `tensorboard` or `scikit-learn` to the torch line makes pip look for them on PyTorch's server, fail, and abort the install.
+
+Then open a notebook and pick the kernel:
+
+```bash
+conda activate cv-dl
+jupyter notebook labsheets/labsheet6-1.ipynb
+```
+
+- **Jupyter:** *Kernel* → *Change kernel* → **Python (cv-dl)**
+- **VS Code:** click the kernel name top-right → *Select Another Kernel* → *Python Environments* → **cv-dl**
+
+> ⚠️ If a notebook reports `ModuleNotFoundError: No module named 'torch'` right after you installed torch, you are on the wrong kernel — the packages are fine, the notebook is just talking to a different Python.
+
+> 💡 Lab 6 ships runnable notebooks ([6-1](./labsheets/labsheet6-1.ipynb), [6-2](./labsheets/labsheet6-2.ipynb)) alongside the markdown sheets. They run locally in `cv-dl`; TensorBoard renders inline via `%tensorboard`. Everything in Lab 6 trains on CPU in seconds — no GPU needed.
 
 ---
 
@@ -177,9 +194,9 @@ dependencies:
 │   ├── labsheet2.md
 │   ├── ...
 │   ├── labsheet6-1.md
-│   ├── labsheet6-1_colab.ipynb  <- runnable companion notebook
+│   ├── labsheet6-1.ipynb       <- runnable companion notebook
 │   ├── labsheet6-2.md
-│   └── labsheet6-2_colab.ipynb
+│   └── labsheet6-2.ipynb
 ├── lecture_notes/
 │   └── (slide decks / notes, as PDFs)
 └── sample_for_doc_images/

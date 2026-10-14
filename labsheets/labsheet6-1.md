@@ -18,19 +18,13 @@ In this lab, you will:
 
 > 💡 **Why IRIS, in a computer vision course?** Precisely *because* it isn't images. This lab is about the training loop itself — autograd, optimizers, checkpointing — and IRIS lets you see all of it clearly without waiting on feature extraction or wondering whether a bad result is your model or your features. The images arrive in 6-2, once the machinery is second nature.
 
-> 💡 A companion notebook, [`labsheet6-1_colab.ipynb`](./labsheet6-1_colab.ipynb), runs everything below in the browser with no local install. You can also run it locally — see Section 0.
+> 💡 A companion notebook, [`labsheet6-1.ipynb`](./labsheet6-1.ipynb), contains everything below in runnable order. Set up the environment and kernel as in Section 0, then work through the notebook.
 
 ---
 
 ## 0️⃣ Prerequisites
 
-### Option A — Google Colab (recommended for this lab)
-
-Open [`labsheet6-1_colab.ipynb`](./labsheet6-1_colab.ipynb) in Colab. PyTorch, torchvision, scikit-image and scikit-learn are all preinstalled; there is nothing to set up. TensorBoard renders inline in the notebook.
-
-> ⚠️ **Colab wipes `/content` when the runtime restarts or disconnects.** Your trained checkpoints and TensorBoard logs will be **gone**, with no warning. Before you close a session, either mount Google Drive and write `checkpoints/` and `runs/` there, or download them. The notebook has a cell for this — don't skip it and then wonder where your trained model went.
-
-### Option B — Local, in a new `cv-dl` environment
+### Step 1 — Create the `cv-dl` environment
 
 Following the same pattern as Lab 1's `cv_gui`, deep-learning work gets its **own** environment rather than being piled into `cv-env`:
 
@@ -41,21 +35,56 @@ conda activate cv-dl
 # CPU-only PyTorch is entirely sufficient for this lab - the models are tiny.
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-# Everything else this lab uses
-pip install scikit-learn scikit-image matplotlib tensorboard opencv-python
+# Everything else this lab uses, including Jupyter
+pip install scikit-learn scikit-image matplotlib tensorboard opencv-python jupyter ipykernel
 ```
+
+> ⚠️ **Run those two `pip install` lines separately, exactly as written.** The first uses `--index-url` to point pip at PyTorch's own package server. That flag **replaces** PyPI for the whole command, so if you append `tensorboard` or `scikit-learn` to it, pip will look for them on PyTorch's server, not find them, and the entire install aborts.
 
 > 💡 **Why CPU-only?** The biggest model in this lab is a 160→128→10 MLP. On a dataset this size it trains in seconds on a CPU, and the GPU wheels are several GB. If you already have a CUDA-capable GPU set up, the code below is device-agnostic and will use it — but you gain almost nothing here.
 
-Verify:
+### Step 2 — Register the environment as a Jupyter kernel
+
+Installing Jupyter *into* the environment is not enough — the notebook also has to be told that this environment exists as a kernel it can run against:
+
+```bash
+conda activate cv-dl
+python -m ipykernel install --user --name cv-dl --display-name "Python (cv-dl)"
+```
+
+You only ever do this once per environment.
+
+### Step 3 — Open the notebook and select the kernel
+
+```bash
+conda activate cv-dl
+cd <wherever you cloned this repo>/labsheets
+jupyter notebook labsheet6-1.ipynb
+```
+
+Then **select the kernel**:
+
+- **Jupyter Notebook / Lab:** menu → *Kernel* → *Change kernel* → **Python (cv-dl)**
+- **VS Code:** click the kernel name in the top-right of the notebook → *Select Another Kernel* → *Python Environments* → **cv-dl**
+
+> ⚠️ **This step is the one people skip, and it produces a confusing failure.** If the notebook is running on your base/default kernel instead of `cv-dl`, the very first cell fails with `ModuleNotFoundError: No module named 'torch'` — even though you just installed torch successfully. The packages are fine; the notebook is simply talking to a different Python. Always check the kernel name shown in the corner of the notebook before debugging an import error.
+
+### Step 4 — Verify
+
+Run this as the first cell. The `sys.executable` line is the one that actually proves you are on the right kernel — it should contain `cv-dl` in the path:
 
 ```python
+import sys
 import torch, torchvision, skimage
-print("torch:", torch.__version__)
+
+print("python:     ", sys.executable)        # <- must contain 'cv-dl'
+print("torch:      ", torch.__version__)
 print("torchvision:", torchvision.__version__)
-print("skimage:", skimage.__version__)
+print("skimage:    ", skimage.__version__)
 print("CUDA available:", torch.cuda.is_available())  # False is fine for this lab
 ```
+
+> 💡 Everything in this lab runs comfortably on a laptop CPU. There is no cloud runtime to disconnect, nothing to re-download each session, and your `checkpoints/` and `runs/` simply stay on disk between sessions.
 
 ### Files you will build
 
@@ -80,7 +109,7 @@ checkpoints/mnist_lbp_mlp_adam_lr1e-3/
 └── best.pt                              <- only when val loss improves
 ```
 
-> 💡 In the Colab notebook these are created with `%%writefile model.py` cells — the notebook genuinely writes the files to disk and imports them as modules, so the exact same files work locally without changes.
+> 💡 In the notebook, these files are created by `%%writefile model.py` cells — the notebook genuinely writes each file to disk and then imports it as a module. So you end up with a real, runnable project directory, not just notebook cells, and the same files work from a plain terminal with `python run_lab6.py`.
 
 ---
 
@@ -100,25 +129,193 @@ Look at what that object actually is. It holds one weight matrix `W` and one bia
 
 That is a **single-layer perceptron**. You have already built one — it was just wearing a scikit-learn name tag. Everything new in this lab is about (a) owning the training loop instead of calling `.partial_fit()`, and (b) stacking more than one layer.
 
-### Single layer: what it can and cannot do
+### Representation 1 — the single-layer perceptron
 
-A single layer computes `z = W·x + b`. Each output is a **weighted sum of the inputs** — a linear function. Stacking the decision rule "pick the largest `z`" on top gives you decision boundaries that are **straight lines** (hyperplanes, in higher dimensions).
-
-That is genuinely enough for a lot of problems. It is not enough when the classes aren't linearly separable — the textbook example being XOR, which no single layer can represent at any setting of `W` and `b`.
-
-### Multi layer: why a hidden layer changes things
-
-Stack two layers with a **non-linearity** between them:
+Start with **one output unit**. It takes every input, multiplies each by its own weight, sums them, adds a bias, and emits one number:
 
 ```
-z1 = W1·x  + b1
-a1 = ReLU(z1)          <- the non-linearity
-z2 = W2·a1 + b2
+   ONE NEURON (output unit j)
+
+        x₁ ●───── w₁ⱼ ─────┐
+                            ╲
+        x₂ ●───── w₂ⱼ ───────►  ⊕  ────►  zⱼ
+                            ╱    ▲
+        x₃ ●───── w₃ⱼ ─────┘     │
+           ⋮                     bⱼ
+        x_d ●──── w_dⱼ ────┘
+
+                 zⱼ = Σᵢ wᵢⱼ·xᵢ + bⱼ
 ```
 
-The `ReLU` is load-bearing. Without it, `W2·(W1·x + b1) + b2` collapses algebraically into a single linear map `W'·x + b'` — two layers with no activation are **exactly as expressive as one layer**, just slower to train. This is worth internalizing now, because it's the reason every architecture you meet from here on has activations between its layers.
+A **single-layer perceptron** is just `C` of those units side by side — one per class — all reading the same inputs. Every input connects to every output, which is exactly what "fully connected" (`nn.Linear`) means:
 
-With the non-linearity, the hidden layer learns an intermediate representation, and the output layer draws a linear boundary *in that learned space* — which is a curved boundary back in the original input space.
+```
+   SINGLE-LAYER PERCEPTRON        d inputs  ->  C classes
+
+        INPUT                         OUTPUT (logits)
+
+        x₁ ●──┐
+              ├──────────►  ⊕  ──►  z₁  ┐
+        x₂ ●──┤                          │
+              ├──────────►  ⊕  ──►  z₂  ├──► softmax ──► p ──► argmax ──► ŷ
+        x₃ ●──┤                          │
+              ├──────────►  ⊕  ──►  z_C ┘
+        x_d ●─┘
+                W (d×C), b (1×C)
+```
+
+**Forward pass.** Per-element, and in matrix form — the matrix form is what the code actually computes, for a whole batch of `N` samples at once:
+
+```
+   scalar :  zⱼ = Σᵢ₌₁..d  wᵢⱼ·xᵢ + bⱼ            for j = 1..C
+
+   matrix :  Z = X·W + b
+   shapes :  (N×C) = (N×d)·(d×C) + (1×C)
+
+   softmax:  pⱼ = exp(zⱼ) / Σₖ exp(zₖ)           logits -> probabilities
+   loss   :  L  = −(1/N) Σₙ log p[n, yₙ]          cross-entropy
+```
+
+> 🔎 **This is exactly `nn.Linear(d, C)`.** When you write `nn.Linear(160, 10)` in Section 4, PyTorch allocates precisely the `W` and `b` above (it stores `W` transposed, as `10×160`), and the forward pass computes `X·W + b`. Nothing else is hidden inside it.
+
+### Representation 2 — the multi-layer perceptron
+
+Insert a **hidden layer** between input and output, with a non-linearity after it:
+
+```
+   MULTI-LAYER PERCEPTRON       d inputs -> h hidden -> C classes
+
+     INPUT            HIDDEN LAYER              OUTPUT LAYER
+                   a⁽¹⁾ = ReLU(z⁽¹⁾)                z⁽²⁾
+
+     x₁ ●──┐         ┌──► ⊕ ─ReLU─► ●──┐
+           ├─────────┤                  ├──────►  ⊕  ──► z₁
+     x₂ ●──┤         ├──► ⊕ ─ReLU─► ●──┤
+           ├─────────┤                  ├──────►  ⊕  ──► z₂
+     x₃ ●──┤         ├──► ⊕ ─ReLU─► ●──┤
+           ├─────────┤                  ├──────►  ⊕  ──► z_C
+     x_d ●─┘         └──► ⊕ ─ReLU─► ●──┘
+
+            W⁽¹⁾ (d×h)                   W⁽²⁾ (h×C)
+            b⁽¹⁾ (1×h)                   b⁽²⁾ (1×C)
+```
+
+**Forward pass:**
+
+```
+   Z⁽¹⁾ = X·W⁽¹⁾ + b⁽¹⁾          (N×h)     hidden pre-activations
+   A⁽¹⁾ = ReLU(Z⁽¹⁾)             (N×h)     ReLU(z) = max(0, z)
+   Z⁽²⁾ = A⁽¹⁾·W⁽²⁾ + b⁽²⁾       (N×C)     output logits
+   P    = softmax(Z⁽²⁾)          (N×C)
+```
+
+### Why the ReLU is load-bearing
+
+Remove the non-linearity and the two layers collapse algebraically:
+
+```
+   Z⁽²⁾ = (X·W⁽¹⁾ + b⁽¹⁾)·W⁽²⁾ + b⁽²⁾
+        =  X·(W⁽¹⁾W⁽²⁾) + (b⁽¹⁾W⁽²⁾ + b⁽²⁾)
+        =  X·W′ + b′                          ... a SINGLE linear layer
+```
+
+Two stacked `Linear` layers with nothing between them are **exactly as expressive as one**, just slower to train. Internalize this now — it is why every architecture you meet from here on has activations between its layers.
+
+With the ReLU in place, the hidden layer learns an intermediate representation and the output layer draws a linear boundary *in that learned space*, which is a curved boundary back in the original input space.
+
+### Weight calculation: how the weights actually change
+
+Training is one rule applied over and over. Every parameter moves **against** its gradient, scaled by the learning rate `η`:
+
+```
+   W ← W − η · ∂L/∂W
+   b ← b − η · ∂L/∂b
+```
+
+Everything else is working out what `∂L/∂W` is for each layer.
+
+**Single layer (softmax + cross-entropy).** These two combine so that the gradient at the logits is simply "predicted minus true":
+
+```
+   Δ      = ∂L/∂Z = (P − Y) / N        Y = one-hot targets,  (N×C)
+   ∂L/∂W  = Xᵀ·Δ                        (d×C)
+   ∂L/∂b  = Σₙ Δ[n,:]                   (1×C)
+```
+
+**Multi-layer — backpropagation.** The same idea applied layer by layer, from the output backwards. Each layer passes a gradient back through its own weights, and the ReLU gates it:
+
+```
+   OUTPUT LAYER
+   Δ⁽²⁾     = (P − Y) / N                           (N×C)
+   ∂L/∂W⁽²⁾ = A⁽¹⁾ᵀ·Δ⁽²⁾                            (h×C)
+   ∂L/∂b⁽²⁾ = Σₙ Δ⁽²⁾[n,:]                          (1×C)
+
+   HIDDEN LAYER   (propagate back, then gate through the ReLU)
+   Δ⁽¹⁾     = (Δ⁽²⁾·W⁽²⁾ᵀ) ⊙ ReLU′(Z⁽¹⁾)            (N×h)
+              where  ReLU′(z) = 1 if z > 0, else 0
+                     ⊙         = elementwise product
+   ∂L/∂W⁽¹⁾ = Xᵀ·Δ⁽¹⁾                               (d×h)
+   ∂L/∂b⁽¹⁾ = Σₙ Δ⁽¹⁾[n,:]                          (1×h)
+```
+
+Then apply the same update rule to all four parameter blocks.
+
+> 🔎 **This is precisely what `loss.backward()` computes.** You will verify that claim numerically on one neuron in Section 2, and again on a full layer in this lab's Student Task — where you implement these equations in NumPy and assert your `∂L/∂W` matches PyTorch's `.grad` to floating-point tolerance.
+
+### Worked example: one weight update, by hand
+
+Two inputs, two classes, one sample. `x = [1, 2]`, true class `y = 0`, learning rate `η = 0.1`:
+
+```
+   W = [0.10  0.30]      b = [0.0  0.0]
+       [0.20  0.40]
+
+   FORWARD
+   z₁ = 0.10·1 + 0.20·2 = 0.5
+   z₂ = 0.30·1 + 0.40·2 = 1.1
+   p  = softmax([0.5, 1.1]) = [0.3543, 0.6457]
+   L  = −log(p₁) = −log(0.3543) = 1.0375
+
+   BACKWARD        (true class is 0, so Y = [1, 0])
+   Δ = P − Y = [0.3543 − 1,  0.6457 − 0] = [−0.6457,  0.6457]
+
+   ∂L/∂W = xᵀ·Δ = [1] · [−0.6457, 0.6457] = [−0.6457   0.6457]
+                  [2]                        [−1.2913   1.2913]
+   ∂L/∂b = [−0.6457,  0.6457]
+
+   UPDATE   W ← W − 0.1·∂L/∂W
+   W_new = [0.10−0.1(−0.6457)   0.30−0.1(0.6457)]  =  [0.1646   0.2354]
+           [0.20−0.1(−1.2913)   0.40−0.1(1.2913)]     [0.3291   0.2709]
+   b_new = [0.0646,  −0.0646]
+```
+
+Read what happened. The model put only 35% probability on the correct class, so **every weight feeding class 0 went up and every weight feeding class 1 went down**. And `x₂ = 2` moved twice as far as `x₁ = 1` — a larger input means that weight was twice as responsible for the error, so it takes twice the correction.
+
+Verify it against PyTorch yourself. This should print `True`:
+
+```python
+import numpy as np
+import torch
+import torch.nn.functional as F
+
+x = torch.tensor([[1.0, 2.0]])
+y = torch.tensor([0])
+W = torch.tensor([[0.10, 0.30], [0.20, 0.40]], requires_grad=True)
+b = torch.tensor([[0.0, 0.0]], requires_grad=True)
+
+loss = F.cross_entropy(x @ W + b, y)   # softmax + cross-entropy, fused
+loss.backward()
+
+print("loss :", round(loss.item(), 4))                      # 1.0375
+print("dL/dW:\n", W.grad.numpy())
+print("dL/db:", b.grad.numpy())
+
+expected_dW = np.array([[-0.6457, 0.6457], [-1.2913, 1.2913]])
+print("matches the hand calculation:",
+      np.allclose(W.grad.numpy(), expected_dW, atol=1e-4))
+```
+
+### Single vs multi layer, summarized
 
 |                     | Single-layer perceptron                   | Multi-layer perceptron (MLP)                     |
 | ------------------- | ----------------------------------------- | ------------------------------------------------ |
@@ -219,7 +416,7 @@ with torch.no_grad():          # weight updates must not themselves be recorded
     b -= LR * b.grad
 ```
 
-In real code, an **optimizer** does this for you, which also lets you swap SGD for Adam without touching the loop.
+In real code an **optimizer** does this for you, which also lets you swap SGD for Adam without touching the loop.
 
 ### The five-line ritual
 
@@ -235,7 +432,7 @@ optimizer.step()               # 5. apply the update using those .grad values
 
 > ⚠️ **Why `zero_grad()` exists, and the bug you get without it.** PyTorch **accumulates** gradients into `.grad` rather than overwriting them. If you forget `zero_grad()`, step 4 *adds* this batch's gradient to every previous batch's gradient, so your effective gradient keeps growing without bound. The model still trains — badly, erratically, and often it converges to something mediocre instead of crashing. There is no error message. This is the most common PyTorch bug, and the fact that it fails *silently* is exactly what makes it worth memorizing now.
 >
-> (The accumulation behavior is deliberate, not an oversight — it's what lets you simulate a large batch on a small GPU by summing gradients over several small batches before stepping once.)
+> (The accumulation behaviour is deliberate, not an oversight — it's what lets you simulate a large batch on a small GPU by summing gradients over several small batches before stepping once.)
 
 ### `model.train()` vs `model.eval()`, and `torch.no_grad()`
 
@@ -267,7 +464,7 @@ That separation is why you can swap IRIS for MNIST without touching your trainin
 
 ### IRIS
 
-IRIS is 150 flowers, 4 numeric measurements each (sepal length/width, petal length/width), 3 species. It is not a vision dataset, and it ships with scikit-learn, not torchvision — which makes it perfect for this section, because there is no ready-made loader and you have to write the `Dataset` yourself.
+IRIS is 150 flowers, 4 numeric measurements each (sepal length/width, petal length/width), 3 species. It is not a vision dataset and it ships with scikit-learn, not torchvision — which makes it perfect for this section, because there is no ready-made loader and you have to write the `Dataset` yourself.
 
 It's also a useful case for the single-vs-multi-layer question: `setosa` is cleanly linearly separable from the other two, while `versicolor` and `virginica` overlap slightly. So a single layer gets *most* of the way, and you can see exactly how much the hidden layer buys.
 
@@ -342,7 +539,7 @@ def build_iris_datasets(val_size=0.2, test_size=0.2, random_state=42):
     )
 ```
 
-> ⚠️ **The scaler is part of your model.** If you save `best.pt` but lose the `StandardScaler` that was fitted alongside it, the checkpoint is useless — feeding raw centimetres into weights trained on standardized inputs produces confident nonsense. Section 5 saves the scaler **inside** the checkpoint for exactly this reason. This is the direct descendant of Lab 4's joblib.dump(scaler, "caltech256_scaler.joblib")`.
+> ⚠️ **The scaler is part of your model.** If you save `best.pt` but lose the `StandardScaler` that was fitted alongside it, the checkpoint is useless — feeding raw centimetres into weights trained on standardized inputs produces confident nonsense. Section 5 saves the scaler **inside** the checkpoint for exactly this reason. This is the direct descendant of Lab 4's `joblib.dump(scaler, "caltech256_scaler.joblib")`.
 
 ---
 
@@ -711,14 +908,14 @@ train({**base_iris, "run_name": "iris_mlp", "model": "mlp", "hidden_sizes": (32,
 
 ### Viewing TensorBoard
 
-In Colab, inline:
+Inline in the notebook (run this in a cell):
 
 ```python
 %load_ext tensorboard
 %tensorboard --logdir runs
 ```
 
-Locally, in a second terminal with `cv-dl` active:
+Or as a standalone server, in a second terminal with `cv-dl` active:
 
 ```bash
 tensorboard --logdir runs
@@ -730,13 +927,13 @@ Tabs worth knowing: **SCALARS** (loss/accuracy curves, all runs overlaid — tic
 ### Task
 
 1. Run both configurations. For each, report the best epoch, best validation loss, and test accuracy.
-2. **Single vs multi-layer.** How much does the hidden layer actually buy you on IRIS? IRIS is a useful case here: `setosa` is cleanly linearly separable from the other two species, while `versicolor` and `virginica` overlap slightly — so a single layer should get *most* of the way on its own.
+2. **Single vs multi layer.** How much does the hidden layer actually buy you on IRIS? IRIS is a useful case here: `setosa` is cleanly linearly separable from the other two species, while `versicolor` and `virginica` overlap slightly — so a single layer should get *most* of the way on its own.
 
-   > ⚠️ **IRIS's test split is only 30 samples**, so a single sample is worth 3.3% of the score. It is entirely normal for the MLP to score *below* the single-layer model on IRIS test accuracy in a given run — that is, noise, not evidence that the hidden layer hurt. Look at the validation curves in TensorBoard, and re-run with a few different `random_state` values before concluding anything. **Knowing when a difference is too small to mean anything is part of the skill.**
+   > ⚠️ **IRIS's test split is only 30 samples**, so a single sample is worth 3.3% of the score. It is entirely normal for the MLP to score *below* the single-layer model on IRIS test accuracy in a given run — that is noise, not evidence that the hidden layer hurt. Look at the validation curves in TensorBoard, and re-run with a few different `random_state` values before concluding anything. **Knowing when a difference is too small to mean anything is part of the skill.**
    >
-3. **Watch the checkpointing work.** Note which epoch `best.pt` came from versus which epoch training actually stopped at. The gap between those two numbers is exactly what early stopping plus best-checkpointing bought you — without it, you would have shipped the final epoch's weights, which were measurably worse on validation.
+3. **Watch the checkpointing work.** Note which epoch `best.pt` came from versus which epoch training actually stopped at. The gap between those two numbers is exactly what early stopping plus best-checkpointing bought you — without it you would have shipped the final epoch's weights, which were measurably worse on validation.
 4. Open the **GRAPHS** tab in TensorBoard and compare the single-layer and MLP graphs against the forward pass you traced by hand in Section 4. Then open **HISTOGRAMS** and watch how the weight distributions move over training.
-5. Deliberately break it: comment out `optimizer.zero_grad()` in `train.py` and re-run. The model still trains — note how the loss curve differs, and how easy this would have been to miss. Put the line back afterward.
+5. Deliberately break it: comment out `optimizer.zero_grad()` in `train.py` and re-run. The model still trains — note how the loss curve differs, and how easy this would have been to miss. Put the line back afterwards.
 
 ---
 
@@ -752,14 +949,14 @@ You must write, by hand:
 2. **Loss** — cross-entropy between the predicted probabilities and the one-hot true labels.
 3. **Backward pass** — the analytic gradients `dL/dW` and `dL/db`. (For softmax + cross-entropy together, `dL/dz` simplifies to `(probabilities - one_hot) / batch_size` — derive this, don't just use it. The derivation is the point.)
 4. **Update** — `W -= lr * dW`, `b -= lr * db`.
-5. A **mini-batch training loop** over the same IRIS split as your PyTorch version used.
+5. A **mini-batch training loop** over the same IRIS split your PyTorch version used.
 
 **Requirements:**
 
 1. **Verify your gradients against PyTorch.** Build a `SingleLayerPerceptron` with the *same* initial weights as your NumPy version, run one forward and backward pass on the *same* batch, and assert that your hand-computed `dW` and `db` match `model.fc.weight.grad` and `model.fc.bias.grad` to within floating-point tolerance. **Show this assert passing** — this is the core deliverable, and it is the same verification you did on one neuron in Section 2, now at full layer scale.
 2. Train your NumPy perceptron to convergence on IRIS and plot its training loss curve beside the PyTorch `iris_single` run's curve from Section 6. They should be close; explain any difference you see (weight initialization, batch ordering, and floating-point accumulation are the usual suspects).
 3. Report final test accuracy for both and compare.
-4. **Extend to one hidden layer** (NumPy MLP: `X → W1 → ReLU → W2 → softmax`). You'll need to backpropagate through the ReLU — note that its gradient is simply `1` where the input was positive and `0` elsewhere. Verify these gradients against PyTorch, too.
+4. **Extend to one hidden layer** (NumPy MLP: `X → W1 → ReLU → W2 → softmax`). You'll need to backpropagate through the ReLU — note that its gradient is simply `1` where the input was positive and `0` elsewhere. Verify these gradients against PyTorch too.
 
 **Some things to think about:**
 
@@ -774,6 +971,6 @@ You must write, by hand:
 
 ## ➡️ Next
 
-Continue to **[Lab 6-2 — Image Features &amp; Training Mechanics](./labsheet6-2.md)**, which reuses the `dataset.py`, `model.py,` and `train.py` you just wrote — unchanged — and points them at images.
+Continue to **[Lab 6-2 — Image Features &amp; Training Mechanics](./labsheet6-2.md)**, which reuses the `dataset.py`, `model.py` and `train.py` you just wrote — unchanged — and points them at images.
 
 ---

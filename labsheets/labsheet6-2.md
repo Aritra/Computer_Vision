@@ -16,26 +16,40 @@ In this lab, you will:
 
 > 📌 **This lab continues directly from [Lab 6-1](./labsheet6-1.md).** It reuses the `dataset.py`, `model.py` and `train.py` you wrote there — **unchanged**, apart from adding two new `Dataset` classes in Section 1. Every experiment below is a *config change*, not new training code. If you haven't finished 6-1, do that first.
 
-> 💡 A companion notebook, [`labsheet6-2_colab.ipynb`](./labsheet6-2_colab.ipynb), runs everything below in the browser.
+> 💡 A companion notebook, [`labsheet6-2.ipynb`](./labsheet6-2.ipynb), contains everything below in runnable order. Use the same `cv-dl` environment and kernel you set up in Lab 6-1 Section 0.
 
 ---
 
 ## 0️⃣ Prerequisites
 
-- The same environment as Lab 6-1: either the **Colab notebook** or your local **`cv-dl`** conda environment.
-- **`dataset.py`, `model.py` and `train.py` from Lab 6-1**, in your working directory.
+- The **`cv-dl`** conda environment and its Jupyter kernel, from Lab 6-1 Section 0. Nothing new to install.
+- **`dataset.py`, `model.py` and `train.py` from Lab 6-1**, in the same folder as this notebook.
 
-> ⚠️ **If you are on Colab, the runtime has almost certainly been wiped since Lab 6-1** — `/content` does not survive a disconnect. The 6-2 notebook therefore re-creates those three files in its setup cells, so it stands alone. If you saved them to Drive at the end of 6-1, mount Drive and copy them back instead.
+```bash
+conda activate cv-dl
+cd <your lab6 folder>
+jupyter notebook labsheet6-2.ipynb
+```
 
-### What you should already have working
+Then select the **Python (cv-dl)** kernel, exactly as in Lab 6-1.
+
+> 💡 **Working locally means your Lab 6-1 files are simply still there** — nothing was wiped between sessions, and `checkpoints/` and `runs/` from 6-1 are still on disk, so TensorBoard will show your IRIS runs alongside the new ones in this lab.
+>
+> If you no longer have the three files (different machine, or you cleaned the folder), the notebook's setup cells can re-create them — they are byte-identical to Lab 6-1's. Run those cells only if the import check below fails.
+
+### Check you're ready
 
 ```python
+import sys
+print("python:", sys.executable)        # <- must contain 'cv-dl'
+
 from dataset import build_iris_datasets
 from model import build_model
 from train import train
+print("Lab 6-1 modules imported OK")
 ```
 
-If those imports succeed, you're ready.
+If `sys.executable` doesn't contain `cv-dl`, you're on the wrong kernel — fix that first (Lab 6-1 Section 0, Step 3). If the imports fail with `ModuleNotFoundError: No module named 'dataset'`, the three files aren't in this folder; run the setup cells in the notebook to re-create them.
 
 ### Everything here is a config change
 
@@ -542,7 +556,7 @@ cv2.waitKey(0)
 cv2.destroyAllWindows()
 ```
 
-> 💡 In Colab there is no `cv2.imshow()` — the runtime has no display. Use `matplotlib` or `google.colab.patches.cv2_imshow` instead. The companion notebook handles this; the script above is the local `cv-dl` version.
+> 💡 **Inside a Jupyter notebook, use `matplotlib` instead of `cv2.imshow()`.** `cv2.imshow()` opens a separate OS window that frequently hangs the notebook kernel; matplotlib renders inline. The companion notebook does it that way. The script above uses `cv2.imshow()`, which is the right choice when you run it as a plain script from the terminal — `python predict.py`.
 
 ---
 
