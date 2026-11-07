@@ -23,6 +23,7 @@ Labsheets are added weekly as Markdown files under the [`labsheets/`](./labsheet
 | 5    | [labsheet5.md](./labsheets/labsheet5.md) | Classical ML towards semantic segmentation and content based retrieval | Uploaded |
 | 6-1  | [labsheet6-1.md](./labsheets/labsheet6-1.md) · [notebook](./labsheets/labsheet6-1.ipynb) | Perceptrons, PyTorch, autograd, the training loop, TensorBoard & checkpointing | Uploaded |
 | 6-2  | [labsheet6-2.md](./labsheets/labsheet6-2.md) · [notebook](./labsheets/labsheet6-2.ipynb) | MNIST→LBP features vs raw pixels, and training mechanics (loss, optimizer, LR, regularization, dropout) | Uploaded |
+| 7    | [labsheet7.md](./labsheets/labsheet7.md) · [notebook](./labsheets/labsheet7.ipynb) | Sequence models: RNN, LSTM & GRU on stock-market time series — leakage, baselines, vanishing gradients, walk-forward validation | Uploaded |
 
 > The table above will be updated as new labsheets are released. Check back weekly, or watch/star this repo to get notified of updates.
 
@@ -134,7 +135,16 @@ jupyter notebook labsheets/labsheet6-1.ipynb
 
 > ⚠️ If a notebook reports `ModuleNotFoundError: No module named 'torch'` right after you installed torch, you are on the wrong kernel — the packages are fine, the notebook is just talking to a different Python.
 
-> 💡 Lab 6 ships runnable notebooks ([6-1](./labsheets/labsheet6-1.ipynb), [6-2](./labsheets/labsheet6-2.ipynb)) alongside the markdown sheets. They run locally in `cv-dl`; TensorBoard renders inline via `%tensorboard`. Everything in Lab 6 trains on CPU in seconds — no GPU needed.
+**Lab 7 adds two packages** to the same `cv-dl` environment — no new environment needed:
+
+```bash
+conda activate cv-dl
+pip install yfinance pandas
+```
+
+> 💡 Labs 6 and 7 ship runnable notebooks ([6-1](./labsheets/labsheet6-1.ipynb), [6-2](./labsheets/labsheet6-2.ipynb), [7](./labsheets/labsheet7.ipynb)) alongside the markdown sheets. They run locally in `cv-dl`; TensorBoard renders inline via `%tensorboard`. Everything trains on CPU in seconds to a couple of minutes — no GPU needed.
+
+> 💡 **Lab 7 needs network access** the first time, to download price data — after that it caches to CSV and runs offline. If the download fails, it falls back to a synthetic generator so every section still works.
 
 ---
 
@@ -144,7 +154,7 @@ jupyter notebook labsheets/labsheet6-1.ipynb
 |---|---|---|
 | `cv-env` (or `cvlab`) | Labs 1–5, most exercises | `opencv-python`, `numpy`, `matplotlib`, `scikit-learn`, `scikit-image` |
 | `cv_gui` | Lab 1 §8, Lab 2 §8, Lab 3 §1 (PySide6 GUIs) | `opencv-python-headless`, `numpy<2`, `PySide6` |
-| `cv-dl` | Lab 6-1 onward (PyTorch) | `torch`, `torchvision`, `tensorboard`, `scikit-learn`, `scikit-image` |
+| `cv-dl` | Lab 6-1 onward (PyTorch) | `torch`, `torchvision`, `tensorboard`, `scikit-learn`, `scikit-image`, plus `yfinance`, `pandas` from Lab 7 |
 
 > ⚠️ Keep these **separate**. `opencv-python` bundles its own Qt, which conflicts with PySide6 — that's the whole reason `cv_gui` exists (see Lab 1 §8).
 
@@ -196,7 +206,9 @@ dependencies:
 │   ├── labsheet6-1.md
 │   ├── labsheet6-1.ipynb       <- runnable companion notebook
 │   ├── labsheet6-2.md
-│   └── labsheet6-2.ipynb
+│   ├── labsheet6-2.ipynb
+│   ├── labsheet7.md
+│   └── labsheet7.ipynb
 ├── lecture_notes/
 │   └── (slide decks / notes, as PDFs)
 └── sample_for_doc_images/
